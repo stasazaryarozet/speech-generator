@@ -133,6 +133,10 @@ def insert_md_pauses(text: str) -> str:
     Используются плейсхолдеры [[PAUSENNN]], позже конвертируются в провайдер-специфичные теги.
     Также переводит квадратные скобки в круглые, чтобы их не проговаривали.
     """
+    # - Удалить мягкие переносы (soft hyphen)
+    text = text.replace('\u00AD', '')
+    # - Склеить переносы по дефису: "Орга-\nнизм" -> "Организм"
+    text = re.sub(r'-\s*\n\s*', '', text)
     # 0) Удалить изображения ![alt](url)
     text = re.sub(r'!\[[^\]]*\]\([^)]*\)', '', text)
     # 1) Ссылки [text](url) -> text (без URL)
@@ -440,7 +444,7 @@ def synthesize_google(text, voice_name, output_file, speaking_rate: float = 0.80
     client = google_tts.TextToSpeechClient()
     audio_config = google_tts.AudioConfig(
         audio_encoding=google_tts.AudioEncoding.LINEAR16,
-        sample_rate_hertz=24000,
+        sample_rate_hertz=48000,
         speaking_rate=float(speaking_rate)
     )
     cleaned_text = insert_md_pauses(text)
@@ -484,7 +488,7 @@ def synthesize_google(text, voice_name, output_file, speaking_rate: float = 0.80
     with wave.open(temp_wav, 'wb') as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2) # LINEAR16 is 2 bytes
-        wf.setframerate(24000)
+        wf.setframerate(48000)
         wf.writeframes(wav_data)
 
     if output_file.lower().endswith('.mp3'):
@@ -561,7 +565,25 @@ def synthesize_yandex(text, voice_name, api_key, folder_id, output_file, speed: 
         else:
             dyn_voice = voice_name or 'ermil'
         print(f"[Yandex] Параграф {i+1}/{total_paragraphs}: голос={dyn_voice}", flush=True)
-        combined_segments.append(synthesize_block_with_yandex(para, dyn_voice))
+        try:
+            combined_segments.append(synthesize_block_with_yandex(para, dyn_voice))
+        except grpc.RpcError as e:
+            # Fallback на Google для проблемных абзацев или прилипшего голоса
+            print(f"[Yandex->Google] Fallback paragraph {i+1}: {e}", file=sys.stderr)
+            g_voice = 'ru-RU-Wavenet-D' if gender == 'male' else 'ru-RU-Wavenet-E' if alternate else (voice_name or 'ru-RU-Wavenet-D')
+            seg = synthesize_google(para, g_voice, output_file + '.tmp', speaking_rate=float(os.getenv('GOOGLE_SPEAKING_RATE', '0.80')))
+            # synthesize_google пишет файл; для склейки нужен байтовый поток — добавим прямой вызов клиента
+            client = google_tts.TextToSpeechClient()
+            voice_params = google_tts.VoiceSelectionParams(language_code="ru-RU", name=g_voice)
+            audio_config = google_tts.AudioConfig(audio_encoding=google_tts.AudioEncoding.LINEAR16, sample_rate_hertz=48000, speaking_rate=float(os.getenv('GOOGLE_SPEAKING_RATE', '0.80')))
+            chunks_local = split_text_google_ssml_safe(replace_roman_numerals_for_google(insert_md_pauses(para)), target_max_bytes=4500)
+            bytes_parts = []
+            for chunk in chunks_local:
+                ssml_chunk = text_to_ssml_google(chunk)
+                synthesis_input = google_tts.SynthesisInput(ssml=ssml_chunk)
+                resp = client.synthesize_speech(input=synthesis_input, voice=voice_params, audio_config=audio_config)
+                bytes_parts.append(resp.audio_content)
+            combined_segments.append(b''.join(bytes_parts))
     pcm_data = b"".join(combined_segments)
 
     # Экспорт в MP3 через ffmpeg напрямую из RAW PCM
