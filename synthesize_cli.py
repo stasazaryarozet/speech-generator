@@ -557,9 +557,27 @@ def synthesize_yandex(text, voice_name, api_key, folder_id, output_file, speed: 
     genders = ['male', 'female']
     total_paragraphs = len(paragraphs)
     print(f"[Yandex] Абзацев: {total_paragraphs} (alternate_gender={str(alternate).lower()})", flush=True)
+    force_male_google = bool(int(os.getenv('AUTO_MALE_GOOGLE', '0') or '0'))
     for i, para in enumerate(paragraphs):
+        gender = genders[i % 2] if alternate else None
+        if alternate and force_male_google and gender == 'male':
+            g_prefs = get_google_gender_voice_preferences()
+            g_voice = (g_prefs.get('male') or ['ru-RU-Wavenet-D'])[0]
+            print(f"[Google] Параграф {i+1}/{total_paragraphs} (forced male via Google): голос={g_voice}", flush=True)
+            client = google_tts.TextToSpeechClient()
+            voice_params = google_tts.VoiceSelectionParams(language_code="ru-RU", name=g_voice)
+            audio_config_g = google_tts.AudioConfig(audio_encoding=google_tts.AudioEncoding.LINEAR16, sample_rate_hertz=48000, speaking_rate=float(os.getenv('GOOGLE_SPEAKING_RATE', '0.80')))
+            chunks_local = split_text_google_ssml_safe(replace_roman_numerals_for_google(insert_md_pauses(para)), target_max_bytes=4500)
+            bytes_parts = []
+            for chunk in chunks_local:
+                ssml_chunk = text_to_ssml_google(chunk)
+                synthesis_input = google_tts.SynthesisInput(ssml=ssml_chunk)
+                resp = client.synthesize_speech(input=synthesis_input, voice=voice_params, audio_config=audio_config_g)
+                bytes_parts.append(resp.audio_content)
+            combined_segments.append(b''.join(bytes_parts))
+            continue
+
         if alternate:
-            gender = genders[i % 2]
             candidate_voices = prefs.get(gender, [])
             dyn_voice = candidate_voices[0] if candidate_voices else 'ermil'
         else:
@@ -568,20 +586,17 @@ def synthesize_yandex(text, voice_name, api_key, folder_id, output_file, speed: 
         try:
             combined_segments.append(synthesize_block_with_yandex(para, dyn_voice))
         except grpc.RpcError as e:
-            # Fallback на Google для проблемных абзацев или прилипшего голоса
             print(f"[Yandex->Google] Fallback paragraph {i+1}: {e}", file=sys.stderr)
-            g_voice = 'ru-RU-Wavenet-D' if gender == 'male' else 'ru-RU-Wavenet-E' if alternate else (voice_name or 'ru-RU-Wavenet-D')
-            seg = synthesize_google(para, g_voice, output_file + '.tmp', speaking_rate=float(os.getenv('GOOGLE_SPEAKING_RATE', '0.80')))
-            # synthesize_google пишет файл; для склейки нужен байтовый поток — добавим прямой вызов клиента
+            fallback_voice = 'ru-RU-Wavenet-D' if (gender == 'male') else 'ru-RU-Wavenet-E'
             client = google_tts.TextToSpeechClient()
-            voice_params = google_tts.VoiceSelectionParams(language_code="ru-RU", name=g_voice)
-            audio_config = google_tts.AudioConfig(audio_encoding=google_tts.AudioEncoding.LINEAR16, sample_rate_hertz=48000, speaking_rate=float(os.getenv('GOOGLE_SPEAKING_RATE', '0.80')))
+            voice_params = google_tts.VoiceSelectionParams(language_code="ru-RU", name=fallback_voice)
+            audio_config_g = google_tts.AudioConfig(audio_encoding=google_tts.AudioEncoding.LINEAR16, sample_rate_hertz=48000, speaking_rate=float(os.getenv('GOOGLE_SPEAKING_RATE', '0.80')))
             chunks_local = split_text_google_ssml_safe(replace_roman_numerals_for_google(insert_md_pauses(para)), target_max_bytes=4500)
             bytes_parts = []
             for chunk in chunks_local:
                 ssml_chunk = text_to_ssml_google(chunk)
                 synthesis_input = google_tts.SynthesisInput(ssml=ssml_chunk)
-                resp = client.synthesize_speech(input=synthesis_input, voice=voice_params, audio_config=audio_config)
+                resp = client.synthesize_speech(input=synthesis_input, voice=voice_params, audio_config=audio_config_g)
                 bytes_parts.append(resp.audio_content)
             combined_segments.append(b''.join(bytes_parts))
     pcm_data = b"".join(combined_segments)
