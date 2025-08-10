@@ -272,10 +272,11 @@ def text_to_ssml_google(text):
 
 def text_to_yandex_markup(text):
     for word, stressed_form in TERMS_AND_NAMES_YANDEX.items():
-        replacement = f"sil<[300]>{stressed_form}sil<[300]>"
+        replacement = f"sil<[250]>{stressed_form}sil<[250]>"
         text = re.sub(r'\b' + re.escape(word) + r'\b', replacement, text)
-    text = re.sub(r'([.!?])(\s+|$)', r'\1 sil<[800]>\2', text)
-    text = re.sub(r'([,;—])(\s+|$)', r'\1 sil<[400]>\2', text)
+    # Смягчаем паузы, чтобы избежать ощущения "рваности"
+    text = re.sub(r'([.!?])(\s+|$)', r'\1 sil<[600]>\2', text)
+    text = re.sub(r'([,;—])(\s+|$)', r'\1 sil<[250]>\2', text)
     # Плейсхолдеры пауз -> Yandex sil
     def _sil(m):
         return f'sil<[{m.group(1)}]>'
@@ -533,12 +534,10 @@ def synthesize_yandex(text, voice_name, api_key, folder_id, output_file, speed: 
                     return synthesize_chunk_safe(left) + synthesize_chunk_safe(right)
                 raise
 
-        # Разбиение и синтез
+        # Разбиение и синтез: сначала пробуем целиком абзац, при ошибке Too long дробим рекурсивно
         yandex_ready_para = text_to_yandex_markup(block_text)
-        para_chunks = split_text_yandex_safe(yandex_ready_para, target_max_chars=700)
         parts = []
-        for chunk in para_chunks:
-            parts.append(synthesize_chunk_safe(chunk))
+        parts.append(synthesize_chunk_safe(yandex_ready_para))
         try:
             channel.close()
         except Exception:
@@ -601,7 +600,7 @@ def synthesize_yandex(text, voice_name, api_key, folder_id, output_file, speed: 
 # --- CLI ---
 def main():
     parser = argparse.ArgumentParser(description="Text-to-Speech CLI using Yandex or Google.")
-    parser.add_argument("--version", "-V", action='version', version='yandex-speech-cli 0.1.0')
+    parser.add_argument("--version", "-V", action='version', version='yandex-speech-cli 0.1.2')
     parser.add_argument("--verbose", "-v", action='count', default=0, help='Increase verbosity (-v, -vv, -vvv)')
     parser.add_argument("--quiet", "-q", action='store_true', help='Suppress non-error output')
     parser.add_argument("--provider", type=str, choices=['auto', 'google', 'yandex'], help="TTS provider. Default: auto (Yandex→Google fallback)")
@@ -762,7 +761,7 @@ def main():
                 try:
                     osa = f'tell application "VLC" to activate\n' \
                           f'tell application "VLC" to open POSIX file "{output_file}"'
-                    subprocess.run(['osascript', '-e', osa], check=False)
+                    subprocess.run(['osascript', '-e', osa], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 except Exception:
                     # Fallback: обычный open -a VLC file
                     try:
