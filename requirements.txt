@@ -1,0 +1,7 @@
+Flask==3.0.3
+gunicorn==22.0.0
+google-cloud-texttospeech
+grpcio
+yandexcloud
+pydub
+pymorphy2<1.0

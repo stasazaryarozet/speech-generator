@@ -1,0 +1,70 @@
+.TH tts-synthesize 1 "August 2025" "yandex-speech-cli 0.1.0" "User Commands"
+.SH NAME
+tts-synthesize \- CLI для синтеза речи (Yandex/Google)
+.SH SYNOPSIS
+.B tts-synthesize
+.RI [ --provider " {google|yandex} " ]
+.RI [ --voice " VOICE_NAME " ]
+.RI [ --text " TEXT " | --input-file " FILE " | FILE ]
+.RI [ --output-file " OUTPUT.{wav|mp3} " ]
+.RI [ -D | --desktop ]
+.RI [ -p | --play ]
+.RI [ --yandex-api-key " KEY " ]
+.RI [ --yandex-folder-id " FOLDER " ]
+.SH DESCRIPTION
+Инструмент командной строки для синтеза речи на русском языке через Google Cloud TTS и Yandex SpeechKit.
+Поддерживает позиционный путь к файлу, сохранение на Desktop (\-D) и автоплей через VLC (\-p/\-\-play).
+.SH OPTIONS
+.TP
+.B --provider
+Поставщик синтеза: google или yandex. По умолчанию: google.
+.TP
+.B --voice
+Имя голоса. Для Google, например: ru-RU-Wavenet-D. Для Yandex: ermil.
+.TP
+.B --text
+Текст для синтеза.
+.TP
+.B --input-file, FILE
+Путь к текстовому файлу. Один позиционный существующий путь трактуется как --input-file.
+.TP
+.B --output-file
+Путь к выходному аудиофайлу (.wav или .mp3). Если не задано, имя выводится из входного файла с расширением .mp3 либо генерируется UUID.
+.TP
+.B -D, --desktop
+Сохранять результат на Desktop вместо текущей директории (для имён по умолчанию и «голых» имён).
+.TP
+.B -p, --play
+Открыть файл после синтеза (на macOS активируется окно VLC через AppleScript).
+.TP
+.B --yandex-api-key
+API-ключ Yandex (если не задан через переменную окружения YANDEX_API_KEY).
+.TP
+.B --yandex-folder-id
+Folder ID Yandex (если не задан через переменную окружения YANDEX_FOLDER_ID).
+.SH EXIT CODES
+0 \- успех
+.br
+1 \- ошибка входных данных/аргументов/файла
+.br
+2 \- сетевой/транспортный сбой (например, SpeechKit UNAVAILABLE)
+.br
+3 \- ошибка внешнего инструмента (ffmpeg)
+.br
+>0 \- прочие ошибки
+.SH EXAMPLES
+Синтез с Google:
+.PP
+.nf
+  tts-synthesize -D --play /path/to/file.md
+.fi
+.PP
+Синтез с Yandex:
+.PP
+.nf
+  tts-synthesize --provider yandex --voice ermil \
+    --input-file input.txt -D
+.fi
+.SH AUTHOR
+Azarya Rozet
+

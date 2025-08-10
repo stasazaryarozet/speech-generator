@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Синтез речи</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        body { background-color: #f8f9fa; }
+        .container { max-width: 800px; }
+        .card { margin-top: 2rem; }
+        #loading { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="card-body">
+                <h3 class="card-title text-center">Сервис синтеза речи</h3>
+                <form id="ttsForm" method="post" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="text_input">Текст для синтеза</label>
+                        <textarea class="form-control" id="text_input" name="text_input" rows="10" placeholder="Введите текст здесь..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="file_input">Или загрузите файл (.txt, .md)</label>
+                        <input type="file" class="form-control-file" id="file_input" name="file_input" accept=".txt,.md">
+                    </div>
+                    <hr>
+                    <h6>Настройки синтеза</h6>
+                    <div class="form-row">
+                        <div class="form-group col-md-6">
+                            <label for="provider">Провайдер</label>
+                            <select id="provider" name="provider" class="form-control">
+                                <option value="google" selected>Google Cloud</option>
+                                <option value="yandex">Yandex.Cloud</option>
+                            </select>
+                        </div>
+                        <div class="form-group col-md-6">
+                            <label for="voice">Голос</label>
+                            <select id="voice" name="voice" class="form-control"></select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group col-md-6">
+                            <label for="speed">Скорость</label>
+                            <input type="range" class="form-control-range" id="speed" name="speed" min="0.6" max="1.2" step="0.05" value="0.9">
+                            <small class="form-text text-muted">0.6 — медленнее, 1.2 — быстрее</small>
+                        </div>
+                        <div class="form-group col-md-6" id="pitch-group">
+                            <label for="pitch">Интонация (высота тона, только Google)</label>
+                            <input type="range" class="form-control-range" id="pitch" name="pitch" min="-10" max="10" step="1" value="0">
+                            <small class="form-text text-muted">в полутонов: −10 … +10</small>
+                        </div>
+                    </div>
+                    <div class="form-row" id="emotion-row">
+                        <div class="form-group col-md-6">
+                            <label for="emotion">Эмоция (только Yandex, где поддерживается)</label>
+                            <select class="form-control" id="emotion" name="emotion">
+                                <option value="neutral" selected>Нейтральная</option>
+                                <option value="good">Доброжелательная</option>
+                                <option value="evil">Суровая</option>
+                            </select>
+                            <small class="form-text text-muted">Доступность зависит от голоса</small>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">Синтезировать</button>
+                </form>
+                <div id="loading" class="text-center mt-3">
+                    <div class="spinner-border" role="status">
+                        <span class="sr-only">Загрузка...</span>
+                    </div>
+                    <p>Идет синтез, это может занять несколько минут...</p>
+                </div>
+                <div id="result" class="text-center mt-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const VOICES = {
+            google: [
+                { value: 'ru-RU-Wavenet-A', label: 'Женский (A)' },
+                { value: 'ru-RU-Wavenet-C', label: 'Женский (C)' },
+                { value: 'ru-RU-Wavenet-B', label: 'Мужской (B)' },
+                { value: 'ru-RU-Wavenet-D', label: 'Мужской (D)' },
+            ],
+            yandex: [
+                { value: 'ermil',  label: 'Мужской (Ermil)' },
+                { value: 'filipp', label: 'Мужской (Filipp)' },
+                { value: 'alena',  label: 'Женский (Alena)' },
+                { value: 'oksana', label: 'Женский (Oksana)' },
+            ]
+        };
+
+        function populateVoices(provider, keepValue) {
+            const select = document.getElementById('voice');
+            const previous = keepValue || select.value;
+            select.innerHTML = '';
+            (VOICES[provider] || []).forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v.value;
+                opt.textContent = v.label;
+                select.appendChild(opt);
+            });
+            // Restore previous value if still present; otherwise select first
+            if (previous && Array.from(select.options).some(o => o.value === previous)) {
+                select.value = previous;
+            }
+        }
+
+        function updateProviderUI(provider) {
+            populateVoices(provider);
+            // Show pitch only for Google
+            document.getElementById('pitch-group').style.display = (provider === 'google') ? 'block' : 'none';
+            // Show emotion only for Yandex
+            document.getElementById('emotion-row').style.display = (provider === 'yandex') ? 'block' : 'none';
+            // Default speed per provider
+            document.getElementById('speed').value = (provider === 'google') ? 0.8 : 0.9;
+        }
+
+        document.getElementById('provider').addEventListener('change', function () {
+            updateProviderUI(this.value);
+        });
+
+        // Initialize UI for default provider on load
+        (function(){
+            const provider = document.getElementById('provider').value;
+            populateVoices(provider);
+            updateProviderUI(provider);
+        })();
+
+        document.getElementById('ttsForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('result').innerHTML = '';
+            
+            var formData = new FormData(this);
+
+            fetch('/synthesize', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('loading').style.display = 'none';
+                if (data.success) {
+                    document.getElementById('result').innerHTML = `
+                        <div class="alert alert-success">
+                            Синтез успешно завершен!
+                            <a href="${data.file_url}" class="btn btn-success btn-sm ml-2" download>Скачать MP3</a>
+                        </div>`;
+                } else {
+                    document.getElementById('result').innerHTML = `
+                        <div class="alert alert-danger">
+                            Ошибка: ${data.error}
+                        </div>`;
+                }
+            })
+            .catch(error => {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('result').innerHTML = `
+                    <div class="alert alert-danger">
+                        Произошла непредвиденная ошибка: ${error}
+                    </div>`;
+            });
+        });
+    </script>
+</body>
+</html>

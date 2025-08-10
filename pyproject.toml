@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yandex-speech-cli"
+version = "0.1.1"
+description = "CLI для синтеза речи на русском (Yandex SpeechKit и Google Cloud TTS)"
+readme = "README.md"
+authors = [{ name = "Azarya Rozet" }]
+requires-python = ">=3.9"
+dependencies = [
+  "google-cloud-texttospeech",
+  "grpcio",
+  "yandexcloud",
+  "pydub",
+  "pymorphy2>=0.9,<1.0",
+  "protobuf>=5.29.1,<6",
+  "googleapis-common-protos>=1.66.0,<2",
+]
+
+[project.scripts]
+tts-synthesize = "yandex_speech_cli.cli:main"
+voice = "yandex_speech_cli.cli:main"
+
+[tool.setuptools]
+packages = { find = { where = [".", "src/generated"], include = ["yandex_speech_cli", "yandex*", "google*"] } }
+py-modules = ["synthesize_cli"]
+
